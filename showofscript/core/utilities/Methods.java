@@ -6,14 +6,15 @@ import org.tribot.api.Timing;
 import org.tribot.api.input.Keyboard;
 import org.tribot.api.input.Mouse;
 import org.tribot.api2007.*;
-import org.tribot.api2007.Objects;
 import org.tribot.api2007.types.*;
-
 import scripts.core.inventory.InventoryEvent;
 import scripts.dax_api.shared.helpers.InterfaceHelper;
 import scripts.dax_api.walker_engine.WaitFor;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
@@ -91,79 +92,47 @@ public class Methods {
 
 	public static RSObject getObjectAtTileWithAction(RSTile tile1, RSTile tile2, String name, String action) {
 		RSObject[] objects = Objects.getAllIn(tile1, tile2, i -> i.getDefinition().getName().contains(name));
-		for (RSObject object : objects) {
-			if (object != null) {
-				String[] actions = object.getDefinition().getActions();
-				for (String string : actions) {
-					if (java.util.Objects.equals(action, string)) {
-						return object;
-					}
-				}
-			}
-		}
-		return null;
+		return Arrays.stream(objects).filter(i-> Arrays.stream(i.getDefinition().getActions()).filter(java.util.Objects::nonNull).anyMatch(d->d.contains(action))).findAny().get();
 	}
 
 	public static RSObject getObjectWithAction(String action, String name, int distance) {
 		RSObject[] objects = Objects.find(distance, i -> i.getDefinition().getName().contains(name));
-		for (RSObject object : objects) {
-			if (object != null) {
-				String[] actions = object.getDefinition().getActions();
-				for (String string : actions) {
-					if (java.util.Objects.equals(string, action)) {
-						return object;
-					}
-				}
-			}
-		}
-		return null;
+		return Arrays.stream(objects).filter(i-> Arrays.stream(i.getDefinition().getActions()).anyMatch(d->d.contains(action))).findFirst().get();
 	}
 
 	public static RSItem getInventoryItem(String name) {
 		RSItem[] items = Inventory.find(name);
-		for (RSItem item : items) {
-			if (item != null) {
-				return item;
-			}
-		}
-		return null;
+		return Arrays.stream(items).filter(java.util.Objects::nonNull).findFirst().get();
 	}
 
 	public static RSItem getInventoryPartName(String partName) {
 		RSItem[] items = Inventory.find(i -> i.getDefinition().getName().contains(partName));
-		for (RSItem item : items) {
-			if (item != null) {
-				return item;
-			}
-		}
-		return null;
+		return Arrays.stream(items).filter(java.util.Objects::nonNull).findFirst().get();
 	}
 
 	public static RSItem getEquipmentPartName(String partName) {
 		RSItem[] items = Equipment.find(i -> i.getDefinition().getName().contains(partName));
-		for (RSItem item : items) {
-			if (item != null) {
-				return item;
-			}
-		}
-		return null;
+		return Arrays.stream(items).filter(java.util.Objects::nonNull).findAny().get();
 	}
 
 	public static boolean useItemOnObject(String itemName, String objectName, int distance) {
 		General.println("Using: " + itemName + " on " + objectName);
-		if (getInventoryItem(itemName) != null && getObject(objectName, distance) != null) {
+		RSItem item = getInventoryItem(itemName);
+		RSObject object = getObject(objectName, distance);
+		if (item != null && object != null) {
+			 Camera.setCamera(270, 100);
 			if (Game.getItemSelectionState() != 0 && !Game.getSelectedItemName().equals(itemName)) {
 				General.println("Deselecting item");
-				Mouse.click(3);
+				Mouse.click(1);
 				Timing.waitCondition(() -> Game.getItemSelectionState() == 0, 5000);
-			} else if (java.util.Objects.requireNonNull(getInventoryItem(itemName)).click("Use")) {
+			} else if (item.click("Use")) {
 				Timing.waitCondition(
 						() -> Game.getSelectedItemName() != null && Game.getSelectedItemName().equals(itemName), 5000);
 			}
 		}
 		return Game.getSelectedItemName().equals(itemName)
-				&& DynamicClicking.clickRSObject(getObject(objectName, distance),
-						"Use " + itemName + " -> " + java.util.Objects.requireNonNull(getObject(objectName, distance)).getDefinition().getName());
+				&& DynamicClicking.clickRSObject(object,
+						"Use " + itemName + " -> " + objectName);
 	}
 
 	public static boolean useItemOnObject(RSItem item, RSObject object) {
@@ -185,18 +154,22 @@ public class Methods {
 
 	public static void useItemOnNPC(String itemName, String npcName) {
 		General.println("Using: " + itemName + " on " + npcName);
-		if (getInventoryItem(itemName) != null && getNPC(npcName) != null) {
+		RSItem item = getInventoryItem(itemName);
+		RSNPC npc = getNPC(npcName);
+		if (item != null && npc != null) {
+			if(!npc.isOnScreen()) {
+				npc.adjustCameraTo();
+			}else
 			if (Game.getItemSelectionState() != 0 && !Game.getSelectedItemName().equals(itemName)) {
 				General.println("Deselecting item");
-				Mouse.click(3);
+				Mouse.click(1);
 				Timing.waitCondition(() -> Game.getItemSelectionState() == 0, 5000);
-			} else if (java.util.Objects.requireNonNull(getInventoryItem(itemName)).click("Use")) {
+			} else if (item.click("Use")) {
 				Timing.waitCondition(
 						() -> Game.getSelectedItemName() != null && Game.getSelectedItemName().equals(itemName), 5000);
+			} else if (Game.getSelectedItemName().equals(itemName)) {
+				npc.click("Use " + itemName + " -> " + npcName);
 			}
-		}
-		if (getInventoryItem(itemName) != null && Game.getSelectedItemName().equals(itemName)) {
-			java.util.Objects.requireNonNull(getNPC(npcName)).click("Use " + itemName + " -> " + npcName);
 		}
 	}
 
@@ -274,6 +247,9 @@ public class Methods {
 
 	public static boolean useItemOnObject(String itemName, RSObject object) {
 		General.println("Using: " + itemName + " on " + object.getDefinition().getName());
+		if(!object.isOnScreen()) {
+			object.adjustCameraTo();
+		}else
 		if (getInventoryItem(itemName) != null && object.isOnScreen()) {
 			if (Game.getItemSelectionState() != 0 && !Game.getSelectedItemName().equals(itemName)) {
 				General.println("Deselecting item");

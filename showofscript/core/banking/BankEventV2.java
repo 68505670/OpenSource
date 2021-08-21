@@ -21,6 +21,8 @@ import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static org.tribot.api2007.Inventory.getAll;
+
 public class BankEventV2 extends BotEvent {
 
     public  HashMap<String, BankCache> bankCacheHashMap = new HashMap<>();
@@ -49,7 +51,8 @@ public class BankEventV2 extends BotEvent {
                 Timing.waitCondition( () -> Banking.isInBank() || !Player.getRSPlayer().isMoving(), 20000);
             } else if (Banking.openBank()) {
                 General.println("BankEvent opening bank");
-                Timing.waitCondition(Banking::isBankScreenOpen, 2000);
+                Timing.waitCondition(Banking::isBankLoaded, 2000);
+                updateCache();
             }
             return;
         }
@@ -61,8 +64,8 @@ public class BankEventV2 extends BotEvent {
         if (!InventoryEvent.containsOnly(arryOfItemsToWithdraw())) {
             General.println("Banking unreqired items");
             Banking.depositAllExcept(arryOfItemsToWithdraw());
+            Timing.waitCondition( () -> InventoryEvent.containsOnly(arryOfItemsToWithdraw()), 6000);
         }
-
         for (Map.Entry<String, RequisitionItem> withdrawList : withdrawList.entrySet()) {
             RequisitionItem reqItem = withdrawList.getValue();
             String itemName = reqItem.getName();
@@ -70,13 +73,6 @@ public class BankEventV2 extends BotEvent {
             Supplier<Boolean> itemCondition = reqItem.getCondition();
             boolean noted = reqItem.getNoted();
             finalItem = "";
-
-            if (!itemCondition.get()) {
-                General.println("BankEvent: Banking unrequired items part2");
-                General.println("Checking item: " + itemName + " amount: " + amount + " noted: " + noted); //You're not checking finalItem we're checking the itemName
-                Banking.deposit(Integer.MAX_VALUE, itemName);
-                continue;
-            }
 
             if (itemName.contains("~")) {
                 if (finalItem.equals("")) {
@@ -91,20 +87,42 @@ public class BankEventV2 extends BotEvent {
             } else {
                 finalItem = itemName;
             }
+            if(finalItem.equals("")) {
+                continue;
+            }
+            /*if (!itemCondition.get()) {
+                General.println("BankEvent: Banking unrequired items part2");
+                General.println("Checking item: " + itemName + " amount: " + amount + " noted: " + noted); //You're not checking finalItem we're checking the itemName
+                Banking.deposit(Integer.MAX_VALUE, finalItem);
+                continue;
+            }*/
             RSItem finalRsItem = InventoryEvent.getInventoryItem(finalItem);
             RSItemDefinition finalItemDefinition = null;
             if(finalRsItem != null) {
                 finalItemDefinition = finalRsItem.getDefinition();
             }
             General.println("Checking item: " + finalItem + " amount: " + amount + " noted: " + noted);
+            if(!itemCondition.get()) {
+                if(InventoryEvent.contains(finalItem)) {
+                    Banking.deposit(Integer.MAX_VALUE, finalItem);
+                    Timing.waitCondition( () -> !InventoryEvent.contains(finalItem), 3000);
+                }
+                continue;
+            }
 
             if (InventoryEvent.contains(finalRsItem) && finalItemDefinition != null && !finalItemDefinition.isNoted() && noted) {
+                General.println("Depositing item: "+finalItem+" we need noted");
                 Banking.deposit(InventoryEvent.getCount(itemName), itemName);
                 Timing.waitCondition(() -> !InventoryEvent.contains(finalRsItem), 2000);
-            } else if (!contains(finalItem) && InventoryEvent.getInventoryItem(finalItem) == null) {
+            } else if (!bankCacheHashMap.containsKey(finalItem) || !contains(finalItem)) {
                 General.println("Stopping we dont have item '"+finalItem+"' in bank");
+                updateCache();
                 setComplete();
             } else if (!InventoryEvent.contains(finalItem)) {
+                if(!itemCondition.get()) {
+                    General.println("Skipping do to not needing item");
+                    continue;
+                }
                 boolean setStatus = setWithdrawNoted(noted);
                 if (!setStatus) {
                     continue;
@@ -123,13 +141,12 @@ public class BankEventV2 extends BotEvent {
 
                 if (shouldWithdraw && Banking.withdraw(amount - itemCount, finalItem)) {
                     Timing.waitCondition(bankWaitCondition, 2000);
-                } else if (!shouldWithdraw && Banking.deposit(itemCount - amount, finalItem)) {
-                    Timing.waitCondition(bankWaitCondition, 2000);
                 }
             }
         }
         General.println("Trying to update cache");
         updateCache();
+        Banking.close();
         setComplete();
     }
 
@@ -206,22 +223,21 @@ public class BankEventV2 extends BotEvent {
                 } else {
                     finalItem = itemName;
                 }
+                if(finalItem.equals("")) {
+                    continue;
+                }
                 RSItem item = InventoryEvent.getInventoryItem(finalItem);
                 if (noted) {
                     if (item != null) {
-                        if (!InventoryEvent.contains(item)) {
-                            General.println("We dont have item: " + finalItem);
-                            return true;
-                        } else if (!item.getDefinition().isNoted()) {
+                        if (!item.getDefinition().isNoted()) {
                             General.println("We need noted: " + finalItem);
                             return true;
                         }
                     } else {
                         return true;
                     }
-
-                } else if (!InventoryEvent.contains(item)) {
-                    General.println("We dont have: " + finalItem);
+                } else if (!InventoryEvent.contains(finalItem)) {
+                    General.println("BankEvent is Pending Operation: We dont have: " + finalItem);
                     return true;
                 }
             }
@@ -247,8 +263,8 @@ public class BankEventV2 extends BotEvent {
         return amount;
     }
 
-    public static boolean contains(String itemName) {
-        return Banking.find(itemName).length > 0;
+    public boolean contains(String itemName) {
+        return Banking.find(itemName).length >=1;
     }
 
     public void bankEquipment() {
@@ -300,18 +316,21 @@ public class BankEventV2 extends BotEvent {
             if (bank.length < 1 && banker.length < 1 && chest.length < 1) {
                 General.println("BankEvent: Walking to closest bank");
                 DaxWalker.walkToBank();
-                Timing.waitCondition( () -> Banking.isInBank() || !Player.getRSPlayer().isMoving(), 20000);
+                Timing.waitCondition(() -> Banking.isInBank() || !Player.getRSPlayer().isMoving(), 20000);
             } else if (Banking.openBank()) {
                 General.println("BankEvent opening bank");
                 Timing.waitCondition(Banking::isBankScreenOpen, 2000);
             }
+        } else {
+            depositAll();
+            General.sleep(1000);
             updateCache();
         }
     }
 
     public void depositAll() {
         if(Banking.isBankScreenOpen()) {
-            if(Inventory.getAll().length > 0) {
+            if(getAll().length > 0) {
                 Banking.depositAll();
             }
         }
@@ -334,10 +353,16 @@ public class BankEventV2 extends BotEvent {
             General.println("Bank is not open cannot continue");
             return;
         } else {
+            bankCacheHashMap = new HashMap<>();
             RSItem[] bankCache = Banking.getAll();
             for(int i = 0; bankCache.length > i;i++) {
                 General.println("Updating cache: "+bankCache[i].getDefinition().getName() +" ID: "+ bankCache[i].getDefinition().getID()+ " qty: "+bankCache[i].getStack());
                 updateItem(bankCache[i].getDefinition().getName(), bankCache[i].getDefinition().getID(), bankCache[i].getStack());
+            }
+            RSItem[] equipment = Equipment.getItems();
+            for(int i=0; equipment.length> i;i++) {
+                General.println("Updating cache: "+equipment[i].getDefinition().getName() +" ID: "+ equipment[i].getDefinition().getID()+ " qty: "+equipment[i].getStack());
+                updateItem(equipment[i].getDefinition().getName(), equipment[i].getDefinition().getID(), equipment[i].getStack());
             }
         }
     }

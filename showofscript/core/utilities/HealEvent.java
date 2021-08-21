@@ -2,7 +2,6 @@ package scripts.core.utilities;
 
 import org.tribot.api.General;
 import org.tribot.api.Timing;
-import org.tribot.api2007.Skills;
 import org.tribot.api2007.Skills.SKILLS;
 import org.tribot.api2007.types.RSItem;
 import org.tribot.script.Script;
@@ -43,8 +42,7 @@ public class HealEvent extends BotEvent {
 
 	public boolean canEat() {
 		return InventoryEvent.contains(food) && (((SKILLS.HITPOINTS.getActualLevel()
-				- SKILLS.HITPOINTS.getCurrentLevel()) >= (SKILLS.HITPOINTS.getActualLevel() * (40.0f / 100.0f))
-				|| Skills.getCurrentLevel(SKILLS.HITPOINTS) <= 30));
+				- SKILLS.HITPOINTS.getCurrentLevel()) >= (SKILLS.HITPOINTS.getActualLevel() * (40.0f / 100.0f))));
 	}
 
 	public void eat() {
@@ -53,6 +51,7 @@ public class HealEvent extends BotEvent {
 			General.println("Heal Event: Eating: " + eat.getDefinition().getName());
 			if (eat.click("Eat")) {
 				Timing.waitCondition(() -> !canEat(), 500);
+				setComplete();
 			}
 		}
 	}
@@ -61,11 +60,7 @@ public class HealEvent extends BotEvent {
 	public void step() throws InterruptedException, IOException {
 		if (canEat()) {
 			eat();
-		} else {
-			General.println("Heal Event: Completed");
-			setComplete();
 		}
-
 	}
 
 	public HealEvent below(int below) {

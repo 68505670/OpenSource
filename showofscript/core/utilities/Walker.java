@@ -7,9 +7,6 @@ import org.tribot.api2007.Options;
 import org.tribot.api2007.Player;
 import org.tribot.api2007.Walking;
 import org.tribot.api2007.types.*;
-import org.tribot.script.Script;
-
-import scripts.core.botevent.BotEvent;
 import scripts.core.equipment.LoadoutEvent;
 import scripts.core.inventory.InventoryEvent;
 import scripts.dax_api.api_lib.DaxWalker;
@@ -17,12 +14,10 @@ import scripts.dax_api.walker_engine.WalkingCondition.State;
 
 import java.io.IOException;
 
-public class Walker extends BotEvent {
+public class Walker  {
 
-	public Walker(Script script) {
-		super(script);
-		invent = new InventoryEvent(script);
-		healEvent = new HealEvent(script).foodType("Trout").healthPercent(0.4);
+	public Walker() {
+		super();
 	}
 
 	
@@ -45,9 +40,6 @@ public class Walker extends BotEvent {
 						Timing.waitCondition(() -> Game.isRunOn(), 3000);
 						return State.CONTINUE_WALKER;
 					} else if (area.contains(Player.getRSPlayer().getPosition())) {
-						return State.EXIT_OUT_WALKER_SUCCESS;
-					} else if(Game.getDestination().getPosition() != null && area.contains(Game.getDestination().getPosition())){
-						Timing.waitCondition( () -> area.contains(Player.getRSPlayer()), 5000);
 						return State.EXIT_OUT_WALKER_SUCCESS;
 					} else {
 						return State.CONTINUE_WALKER;
@@ -192,11 +184,12 @@ public class Walker extends BotEvent {
 		}
 	}
 
-	public static void blindWalkToAreaHeal(RSArea area, HealEvent healEvent) {
+	public static void blindWalkToAreaHeal(RSArea area, HealEvent healEvent) throws IOException, InterruptedException {
 		if (area != null && !area.contains(Player.getRSPlayer().getPosition())) {
 			if (healEvent.canEat()) {
 				General.println("Eating....");
-				healEvent.eat();
+				healEvent.execute();
+				healEvent.reset();
 			} else if (Game.getRunEnergy() > 20 && !Game.isRunOn()) {
 				General.println("Activating run...");
 				Options.setRunEnabled(true);
@@ -208,7 +201,7 @@ public class Walker extends BotEvent {
 		}
 	}
 
-	public static void blindWalkToTileHeal(RSTile tile) {
+	public static void blindWalkToTileHeal(RSTile tile, HealEvent healEvent) {
 		if (tile != null && tile.distanceTo(Player.getRSPlayer()) >= 3) {
 			if (healEvent.canEat()) {
 				General.println("Eating....");
@@ -247,18 +240,12 @@ public class Walker extends BotEvent {
 		}
 	}
 
-	public static boolean blindWalkToTileCondition(RSTile tile, int withinDistance, int checkDelay) {
+	public static boolean blindWalkToTileCondition(RSTile tile, int withinDistance, int checkDelay, boolean condition) {
 		if (tile != null && tile.distanceTo(Player.getRSPlayer().getPosition()) > withinDistance) {
 			General.println("Not close enough to tile");
-			return Walking.blindWalkTo(tile, () -> Player.getPosition().distanceTo(tile) <= withinDistance, checkDelay);
+			return Walking.blindWalkTo(tile, () -> Player.getPosition().distanceTo(tile) <= withinDistance || condition, checkDelay);
 		}
 		return false;
-	}
-
-	@Override
-	public void step() throws InterruptedException, IOException {
-		// TODO Auto-generated method stub
-
 	}
 
 }

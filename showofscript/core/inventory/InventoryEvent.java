@@ -48,7 +48,7 @@ public class InventoryEvent extends BotEvent {
 		return null;
 	}
 
-	public static boolean contains(String... name) {
+	public static boolean contains(String name) {
 		return Inventory.find(name).length > 0;
 	}
 

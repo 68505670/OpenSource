@@ -48,4 +48,39 @@ public class ShowOffScript extends Script implements PaintInfo, Painting {
         corePaint.paint(g);
     }
 
+    /*@Override
+	public void passArguments(HashMap<String, String> arg) {
+		/*HashMap<String, String> parsedArgs = get(arg);
+		if (parsedArgs.containsKey("BankEvent")) {
+			General.println("BankEvent is: " + parsedArgs.get("BankEvent"));
+		}
+		if (parsedArgs.containsKey("LoadoutEvent")) {
+			General.println("LoadoutEvent is: " + parsedArgs.get("LoadoutEvent"));
+		}
+}
+
+    public static HashMap<String, String> get(HashMap<String, String> userInput) {
+        if (userInput.containsKey("custom_input")) {
+            return getFromString(userInput.get("custom_input"));
+        }
+        return new HashMap<>();
+    }
+
+    public static HashMap<String, String> getFromString(String argumentsString) {
+        HashMap<String, String> arguments = new HashMap<>();
+        if (argumentsString == null) {
+            return arguments;
+        }
+
+        String[] argList = argumentsString.split(";(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)"); // Split everything by ;
+        for (String currentArgument : argList) {
+            if (!currentArgument.contains(":")) {
+                break;
+            }
+            String[] argumentSplit = currentArgument.split(":");
+            arguments.put(argumentSplit[0].replaceAll("^\"|\"$", ""), argumentSplit[1].replaceAll("^\"|\"$", ""));
+        }
+        return arguments;
+    }*/
+
 }

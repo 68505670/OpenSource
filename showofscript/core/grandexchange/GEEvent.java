@@ -1,6 +1,5 @@
 package scripts.core.grandexchange;
 
-import org.tribot.api.DynamicClicking;
 import org.tribot.api.General;
 import org.tribot.api.Timing;
 import org.tribot.api2007.*;
@@ -12,17 +11,16 @@ import scripts.core.botevent.BotEvent;
 import scripts.core.inventory.InventoryEvent;
 import scripts.core.utilities.Methods;
 import scripts.core.utilities.Walker;
+import scripts.dax_api.walker.utils.AccurateMouse;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
 
 public class GEEvent extends BotEvent {
 
     public HashMap<String, GrandExchangeItem> grandExchangeItemHashMap = new HashMap<>();
+    public HashMap<String, GrandExchangeItem> grandExchangeSellHashMap = new HashMap<>();
     public int itemChild;
     BankEventV2 bankEvent;
     RSArea grandExchangeArea = new RSArea(
@@ -37,10 +35,12 @@ public class GEEvent extends BotEvent {
                     new RSTile(3161, 3498, 0)
             }
     );
+    ExchangeBoxes boxes;
 
     public GEEvent(Script script, BankEventV2 bankEvent) {
         super(script);
         this.bankEvent = bankEvent;
+        bankEventV2= new BankEventV2(script).addReq("Coins", Integer.MAX_VALUE);
 
     }
 
@@ -49,14 +49,26 @@ public class GEEvent extends BotEvent {
         return this;
     }
 
+    public GEEvent addReq(String itemName, int qty, int price) {
+        setGrandExchangeItemList(itemName, qty, price);
+        return this;
+    }
+
+    public GEEvent sellReq(String itemName, int price) {
+        setGrandExchangeSellList(itemName, price);
+        General.println("Selling item: "+itemName +" pride: "+price);
+        return this;
+    }
+
+    public void setGrandExchangeSellList(String itemName, int price) {
+        grandExchangeSellHashMap.put(itemName, new GrandExchangeItem(itemName, price));
+    }
+
     public boolean isPendingOperation() {
-        if (bankEvent.bankCacheHashMap.isEmpty()) {
-            General.println("We need to have a cache first");
-            return false;
-        }
         for (Map.Entry<String, GrandExchangeItem> grandExchangeList : grandExchangeItemHashMap.entrySet()) {
             String itemName = grandExchangeList.getKey();
-            if (!bankEvent.bankCacheHashMap.containsKey(itemName) || (bankEvent.bankCacheHashMap.containsKey(itemName) && bankEvent.bankCacheHashMap.get(itemName).getQty() <= 0)) {
+            if (!bankEvent.bankCacheHashMap.containsKey(itemName)) {
+                General.println("Grand Exchange: We dont have: "+itemName);
                 return true;
             }
         }
@@ -74,17 +86,18 @@ public class GEEvent extends BotEvent {
     @Override
     public void step() throws InterruptedException, IOException {
         if (!isPendingOperation()) {
-            if(!canOpenExchange()) {
+            if (!canOpenExchange()) {
                 closeGrandExchange();
-            } else if(!Banking.isBankScreenOpen()) {
-                bankEvent.openBank();
+            } else if (!Banking.isBankScreenOpen()) {
+                bankEventV2.openBank();
             } else {
-                bankEvent.depositAll();
-                bankEvent.updateCache();
+                bankEventV2.depositAll();
+                bankEventV2.updateCache();
                 setComplete();
             }
         } else if (!grandExchangeArea.contains(me())) {
             Walker.walkToArea(grandExchangeArea);
+            Timing.waitCondition( () -> grandExchangeArea.contains(me()), 10000);
         } else {
             if (needCoins()) {
                 getCoins();
@@ -94,62 +107,86 @@ public class GEEvent extends BotEvent {
             } else if (canOpenExchange()) {
                 openGrandExchange();
             } else {
+                General.println("grandExchangeSellHashMap: "+!grandExchangeSellHashMap.isEmpty());
+
+                if(!grandExchangeSellHashMap.isEmpty()) {
+                   for(Map.Entry<String, GrandExchangeItem> sellItemsMap : grandExchangeSellHashMap.entrySet()) {
+                       String itemName = sellItemsMap.getKey();
+                       int price = sellItemsMap.getValue().getPrice();
+                       while (InventoryEvent.contains(itemName)) {
+                           RSItem item = Methods.getInventoryItem(itemName);
+                           if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)) {
+                               if (item.click("Offer")) {
+                                   Timing.waitCondition(() -> GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.NEW_OFFER_WINDOW), 5000);
+                               }
+                           } else if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.NEW_OFFER_WINDOW)) {
+                               if (!isItemPriceCorrect(price)) {
+                                   setItemPrice(price);
+                               } else {
+                                   clickContinue();
+                                   Timing.waitCondition(() -> (Arrays.stream(GrandExchange.getOffers()).anyMatch(i -> i.getStatus() == RSGEOffer.STATUS.COMPLETED) && GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)), 10000);
+                               }
+                           }
+                       }
+                   }
+                }
                 for (Map.Entry<String, GrandExchangeItem> grandExchangeItems : grandExchangeItemHashMap.entrySet()) {
                     String itemName = grandExchangeItems.getKey();
+                    General.println("Trying to buy: " + itemName);
                     int qty;
-                    if (bankEvent.bankCacheHashMap.get(itemName) != null) {
-                        qty = grandExchangeItems.getValue().getQty() - bankEvent.bankCacheHashMap.get(itemName).getQty();
+                    if (bankEventV2.bankCacheHashMap.get(itemName) != null) {
+                        qty = grandExchangeItems.getValue().getQty() - bankEventV2.bankCacheHashMap.get(itemName).getQty();
                         if (qty <= 0) {
-                            General.println("qty is less than 0");
                             continue;
                         }
                     } else {
                         qty = grandExchangeItems.getValue().getQty();
                     }
-
+                    if(canOpenExchange()) {
+                        break;
+                    }
                     int price = grandExchangeItems.getValue().getPrice();
-                    RSGEOffer[] rsgeOffer = GrandExchange.getOffers();
-                    if (Arrays.stream(rsgeOffer).anyMatch(i -> i.getStatus() == RSGEOffer.STATUS.COMPLETED) && GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)) {
+                    RSGEOffer[] rsgeOffer2 = GrandExchange.getOffers();
+                    if (Arrays.stream(rsgeOffer2).anyMatch(i -> i.getStatus() == RSGEOffer.STATUS.COMPLETED) && GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)) {
                         General.println("Collecting items");
                         collectItemsInventory();
                         General.sleep(1000);
+                        updateCache();
                     } else {
-                        if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.OFFER_WINDOW)) {
-                        } else if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)) {
-                            if (alreadyHaveOffer(itemName)) {
-                                continue;
-                            } else if (!getEmptyBox().isPresent()) {
-                                if (GrandExchange.collectItems(GrandExchange.COLLECT_METHOD.NOTES)) {
-                                    Timing.waitCondition(() -> GrandExchange.getOffers().length < 6, 5000);
+
+                        if (GrandExchange.getWindowState() != null) {
+                            if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW)) {
+                                if (alreadyHaveOffer(itemName)) {
+                                    continue;
+                                } else if (!alreadyHaveOffer(itemName)) {
+                                    openFirstEmptyBox();
                                 }
-                            } else if (!alreadyHaveOffer(itemName)) {
-                                openFirstEmptyBox();
-                            }
-                        } else if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.NEW_OFFER_WINDOW)) {
-                            while (!alreadyHaveOffer(itemName)) {
-                                if (needToChooseItem()) {
-                                    if (isItemThere(itemName)) {
-                                        clickItemChild();
-                                        Timing.waitCondition( () -> !needToChooseItem(), 3000);
-                                    } else if (!isItemThere(itemName)) {
-                                        RSInterface buyTextBar = Interfaces.get(162, 42);
-                                        Timing.waitCondition(() -> Interfaces.isInterfaceSubstantiated(buyTextBar), 3000);
-                                        new TypingEvent(script, itemName, false).execute();
-                                        Timing.waitCondition( () -> isItemThere(itemName), 4000);
-                                    }
-                                } else if (isItemCorrect(itemName)) {
-                                    if (!isItemPriceCorrect(price)) {
-                                        setItemPrice(price);
-                                    } else if (!isItemQtyCorrect(qty)) {
-                                        setItemQty(qty);
-                                    } else {
-                                        clickContinue();
-                                        Timing.waitCondition(() -> !alreadyHaveOffer(itemName), 3000);
+                            } else if (GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.NEW_OFFER_WINDOW)) {
+                                while (!alreadyHaveOffer(itemName)) {
+                                    if (needToChooseItem()) {
+                                        if (isItemThere(itemName)) {
+                                            clickItemChild();
+                                            Timing.waitCondition(() -> !needToChooseItem(), 3000);
+                                        } else if (!isItemThere(itemName)) {
+                                            RSInterface buyTextBar = Interfaces.get(162, 42);
+                                            Timing.waitCondition(() -> Interfaces.isInterfaceSubstantiated(buyTextBar), 3000);
+                                            new TypingEvent(script, itemName, false).execute();
+                                            Timing.waitCondition(() -> isItemThere(itemName), 4000);
+                                        }
+                                    } else if (isItemCorrect(itemName)) {
+                                        if (!isItemPriceCorrect(price)) {
+                                            setItemPrice(price);
+                                        } else if (!isItemQtyCorrect(qty)) {
+                                            setItemQty(qty);
+                                        } else {
+                                            clickContinue();
+                                            Timing.waitCondition(() -> GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW), 3000);
+                                        }
                                     }
                                 }
                             }
+                            General.sleep(1000);
                         }
-                        General.sleep(1000);
                     }
                 }
             }
@@ -158,17 +195,11 @@ public class GEEvent extends BotEvent {
 
     public void collectItemsInventory() {
         RSInterface collectInterface = Interfaces.get(465, 6, 0);
-        RSItem[] beforeItemList = getCurrentInventoryList();
         if (Interfaces.isInterfaceSubstantiated(collectInterface)) {
             if (collectInterface.click("Collect to inventory")) {
                 General.sleep(1000);
-                updateCache();
             }
         }
-    }
-
-    public RSItem[] getCurrentInventoryList() {
-        return Inventory.getAll();
     }
 
     public void updateItem(String itemName, int id, int amount) {
@@ -194,7 +225,7 @@ public class GEEvent extends BotEvent {
 
                     // find the qty by matching the current RSItem to the RSItem[] inventoryItems by ID
                     qty = Arrays.stream(inventoryItems)
-                            .filter(rsItem -> rsItem.getID() == rsItemDefinition.getID()) // find the current RSItem in stream using ID
+                            .filter(rsItem -> rsItem.getDefinition().getUnnotedItemID() == rsItemDefinition.getID()) // find the current RSItem in stream using ID
                             .mapToInt(RSItem::getStack) // map the stack
                             .findFirst() // find it
                             .orElse(0); // return the stack or zero if not found
@@ -209,7 +240,7 @@ public class GEEvent extends BotEvent {
         RSInterface continueButton = Interfaces.get(465, 27, 0);
         if (Interfaces.isInterfaceSubstantiated(continueButton)) {
             continueButton.click();
-            Timing.waitCondition(() -> !Interfaces.isInterfaceSubstantiated(continueButton), 3000);
+            Timing.waitCondition(() -> GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.SELECTION_WINDOW), 3000);
         }
     }
 
@@ -273,18 +304,17 @@ public class GEEvent extends BotEvent {
         }
     }
 
-    public boolean clickItemChild() {
+    public void clickItemChild() {
         RSInterface itemList = ExchangeBoxes.itemList;
         if (Interfaces.isInterfaceSubstantiated(itemList)) {
             RSInterface itemChild = itemList.getChild(getItemChild());
             if (Interfaces.isInterfaceSubstantiated(itemChild)) {
-                return itemChild.click();
+                itemChild.click();
             } else {
                 General.println("We need to scroll i guess");
                 General.sleep(1000);
             }
         }
-        return false;
     }
 
     public boolean isItemThere(String itemName) {
@@ -312,14 +342,16 @@ public class GEEvent extends BotEvent {
     }
 
     public void openFirstEmptyBox() {
-        RSInterface emptyBox = getFirstEmptyBox().get();
+        General.println("Trying to open first empty box");
+        RSInterface emptyBox = getFirstEmptyBox();
         if (emptyBox.getChild(ExchangeBoxes.buyChild).click()) {
             Timing.waitCondition(() -> GrandExchange.getWindowState().equals(GrandExchange.WINDOW_STATE.NEW_OFFER_WINDOW), 5000);
         }
     }
 
     public boolean alreadyHaveOffer(String itemName) {
-        return Arrays.stream(ExchangeBoxes.allBoxes).anyMatch(i -> i.getChild(19).getText().equals(itemName));
+        RSInterface[] allBoxes = new RSInterface[]{Interfaces.get(465, 7), Interfaces.get(465, 8), Interfaces.get(465, 9), Interfaces.get(465, 10), Interfaces.get(465, 11), Interfaces.get(465, 12), Interfaces.get(465, 13), Interfaces.get(465, 14)};
+        return Arrays.stream(allBoxes).anyMatch(i -> i.getChild(19).getText().equals(itemName));
     }
 
     public boolean isBoxEmpty(RSInterface box) {
@@ -327,30 +359,47 @@ public class GEEvent extends BotEvent {
     }
 
     public Optional<RSInterface> getEmptyBox() {
-        RSInterface[] allBoxes = ExchangeBoxes.allBoxes;
+        RSInterface[] allBoxes = new RSInterface[]{Interfaces.get(465, 7), Interfaces.get(465, 8), Interfaces.get(465, 9), Interfaces.get(465, 10), Interfaces.get(465, 11), Interfaces.get(465, 12), Interfaces.get(465, 13), Interfaces.get(465, 14)};
         int buyChild = ExchangeBoxes.buyChild;
-        return Arrays.stream(allBoxes).filter(i -> Interfaces.isInterfaceSubstantiated(i.getChild(buyChild))).findAny();
+        return Arrays.stream(allBoxes).filter(Objects::nonNull).filter(i -> Interfaces.isInterfaceSubstantiated(i.getChild(buyChild))).findAny();
     }
 
-    public Optional<RSInterface> getFirstEmptyBox() {
-        RSInterface[] allBoxes = ExchangeBoxes.allBoxes;
+    public RSInterface getFirstEmptyBox() {
+        RSInterface[] allBoxes = new RSInterface[]{Interfaces.get(465, 7), Interfaces.get(465, 8), Interfaces.get(465, 9), Interfaces.get(465, 10), Interfaces.get(465, 11), Interfaces.get(465, 12), Interfaces.get(465, 13), Interfaces.get(465, 14)};
         int buyChild = ExchangeBoxes.buyChild;
-        return Arrays.stream(allBoxes).filter(i -> Interfaces.isInterfaceSubstantiated(i.getChild(buyChild))).findFirst();
+        return Arrays.stream(allBoxes).filter(d -> Interfaces.isInterfaceSubstantiated(d.getChild(buyChild))).findFirst().get();
     }
 
     public boolean noEmptyBoxes() {
-        RSInterface[] allBoxes = ExchangeBoxes.allBoxes;
+        RSInterface[] allBoxes = new RSInterface[]{Interfaces.get(465, 7), Interfaces.get(465, 8), Interfaces.get(465, 9), Interfaces.get(465, 10), Interfaces.get(465, 11), Interfaces.get(465, 12), Interfaces.get(465, 13), Interfaces.get(465, 14)};
         int buyChild = ExchangeBoxes.buyChild;
         return Arrays.stream(allBoxes).noneMatch(i -> Interfaces.isInterfaceSubstantiated(i.getChild(buyChild)));
     }
 
 
     public boolean needCoins() {
-        return !InventoryEvent.contains("Coins");
+        return bankEventV2.addReq("Coins", Integer.MAX_VALUE).isPendingOperation();
     }
+    BankEventV2 bankEventV2;
 
     public void getCoins() throws IOException, InterruptedException {
-        new BankEventV2(script).addReq("Coins", Integer.MAX_VALUE).execute();
+        if(grandExchangeSellHashMap.isEmpty()) {
+            General.println("SellHashMap is empty");
+           bankEventV2 = new BankEventV2(script).addReq("Coins", Integer.MAX_VALUE);
+           bankEventV2.execute();
+           bankEventV2.reset();
+        } else {
+            for(Map.Entry<String, GrandExchangeItem> grandSellItems :grandExchangeSellHashMap.entrySet()) {
+                String itemName = grandSellItems.getValue().getItemName();
+                General.println("Adding: "+itemName+" to bankevent");
+                bankEventV2.addReq(itemName, Integer.MAX_VALUE, () -> bankEventV2.bankCacheHashMap.containsKey(itemName) || InventoryEvent.contains(itemName));
+            }
+            if(bankEventV2.isPendingOperation()) {
+                bankEventV2.execute();
+                bankEventV2 = new BankEventV2(script);
+                bankEventV2.reset();
+            }
+        }
     }
 
     public boolean canOpenExchange() {
@@ -358,34 +407,24 @@ public class GEEvent extends BotEvent {
     }
 
     public void openGrandExchange() {
-        RSNPC[] clerk = NPCs.find(Constants.IDs.NPCs.ge_clerk);
         RSObject booth = Methods.getObjectWithAction("Exchange", "Grand Exchange booth", 20);
         if (booth != null) {
             if (!booth.isOnScreen() || !booth.isClickable()) {
                 booth.adjustCameraTo();
-            } else if (DynamicClicking.clickRSObject(booth, "Exchange")) {
+            } else if (AccurateMouse.click(booth, "Exchange")) {
                 Timing.waitCondition(() -> GrandExchange.getWindowState() != null, 5000);
             }
         }
     }
 
     public void closeGrandExchange() {
-        if(!canOpenExchange()) {
+        if (!canOpenExchange()) {
             GrandExchange.close();
-            Timing.waitCondition( () -> canOpenExchange(), 4000);
+            Timing.waitCondition(() -> canOpenExchange(), 4000);
         }
     }
-
-
 
     public RSPlayer me() {
         return Player.getRSPlayer();
     }
-
-    public GEEvent addReq(String itemName, int qty, int price) {
-        grandExchangeItemHashMap.put(itemName, new GrandExchangeItem(itemName, qty, price));
-        return this;
-    }
-
-
 }

@@ -6,7 +6,7 @@ import org.tribot.api2007.types.RSInterface;
 public class ExchangeBoxes {
 
     public static RSInterface Box1 = Interfaces.get(465, 7);
-    public static RSInterface Box2 = Interfaces.get(465, 8);
+    public static   RSInterface Box2 = Interfaces.get(465, 8);
     public static RSInterface Box3 = Interfaces.get(465, 9);
     public static RSInterface Box4 = Interfaces.get(465, 10);
     public static RSInterface Box5 = Interfaces.get(465, 11);
@@ -24,7 +24,7 @@ public class ExchangeBoxes {
 
     public int offerTypeChild = 16;
 
-    static RSInterface[] allBoxes = new RSInterface[]{Box1, Box2, Box3, Box4, Box5, Box6, Box7, Box8};
+     static RSInterface[] allBoxes = new RSInterface[]{Box1, Box2, Box3, Box4, Box5, Box6, Box7, Box8};
 
     public static RSInterface searchBar = Interfaces.get(162, 42);
 
